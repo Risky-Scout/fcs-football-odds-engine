@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Literal
 
 import pandas as pd
 
@@ -84,13 +83,22 @@ def benchmark_game_probs(
     away_ml_prob = away_win_prob(result.joint_pmf)
     draw_prob = tie_prob(result.joint_pmf)
 
+    # Benchmark-only college-football OT adjustment:
+    # split regulation tie mass evenly until a dedicated OT benchmark module exists.
+    home_ml_ot_adj_prob = home_ml_prob + 0.5 * draw_prob
+    away_ml_ot_adj_prob = away_ml_prob + 0.5 * draw_prob
+
     out["home_ml_prob"] = home_ml_prob
     out["away_ml_prob"] = away_ml_prob
     out["tie_prob"] = draw_prob
-    out["home_ml_decimal"] = fair_decimal_odds(home_ml_prob) if 0 < home_ml_prob < 1 else None
-    out["away_ml_decimal"] = fair_decimal_odds(away_ml_prob) if 0 < away_ml_prob < 1 else None
-    out["home_ml_american"] = fair_american_odds(home_ml_prob) if 0 < home_ml_prob < 1 else None
-    out["away_ml_american"] = fair_american_odds(away_ml_prob) if 0 < away_ml_prob < 1 else None
+
+    out["home_ml_ot_adj_prob"] = home_ml_ot_adj_prob
+    out["away_ml_ot_adj_prob"] = away_ml_ot_adj_prob
+
+    out["home_ml_decimal"] = fair_decimal_odds(home_ml_ot_adj_prob) if 0 < home_ml_ot_adj_prob < 1 else None
+    out["away_ml_decimal"] = fair_decimal_odds(away_ml_ot_adj_prob) if 0 < away_ml_ot_adj_prob < 1 else None
+    out["home_ml_american"] = fair_american_odds(home_ml_ot_adj_prob) if 0 < home_ml_ot_adj_prob < 1 else None
+    out["away_ml_american"] = fair_american_odds(away_ml_ot_adj_prob) if 0 < away_ml_ot_adj_prob < 1 else None
 
     if spread is not None:
         home_cover = home_margin_greater_than(result.joint_pmf, spread)

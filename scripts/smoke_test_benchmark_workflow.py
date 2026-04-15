@@ -73,9 +73,11 @@ for label, result, probs in [
     print(f"Expected score: {result.home_team} {result.expected_home_score:.2f} - {result.away_team} {result.expected_away_score:.2f}")
     print(f"Expected margin (home): {result.expected_margin_home:.2f}")
     print(f"Expected total: {result.expected_total:.2f}")
-    print(f"Home ML prob: {probs['home_ml_prob']:.4f}")
-    print(f"Away ML prob: {probs['away_ml_prob']:.4f}")
-    print(f"Tie prob: {probs['tie_prob']:.4f}")
+    print(f"Home ML prob (regulation grid): {probs['home_ml_prob']:.4f}")
+    print(f"Away ML prob (regulation grid): {probs['away_ml_prob']:.4f}")
+    print(f"Tie prob (regulation grid): {probs['tie_prob']:.4f}")
+    print(f"Home ML prob (OT-adjusted): {probs['home_ml_ot_adj_prob']:.4f}")
+    print(f"Away ML prob (OT-adjusted): {probs['away_ml_ot_adj_prob']:.4f}")
     print(f"Home -3.5 cover prob: {probs['home_minus_3.5_cover_prob']:.4f}")
     print(f"Away +3.5 cover prob: {probs['away_plus_3.5_cover_prob']:.4f}")
     print(f"Over 52.5 prob: {probs['over_52.5_prob']:.4f}")
@@ -86,6 +88,9 @@ for label, result, probs in [
     assert 0.0 <= probs["home_ml_prob"] <= 1.0
     assert 0.0 <= probs["away_ml_prob"] <= 1.0
     assert 0.0 <= probs["tie_prob"] <= 1.0
+    assert 0.0 <= probs["home_ml_ot_adj_prob"] <= 1.0
+    assert 0.0 <= probs["away_ml_ot_adj_prob"] <= 1.0
+    assert abs(probs["home_ml_ot_adj_prob"] + probs["away_ml_ot_adj_prob"] - 1.0) < 1e-9
     assert abs(result.expected_total - (result.expected_home_score + result.expected_away_score)) < 1e-9
 
 print("\nSmoke test passed.")
