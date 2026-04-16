@@ -106,7 +106,7 @@ def load_games(path: str) -> pd.DataFrame:
 
 
 def sort_games(df: pd.DataFrame) -> pd.DataFrame:
-    sort_cols = [c for c in ["season", "week", "game_date"] if c in df.columns]
+    sort_cols = [c for c in ["season", "week", "start_date", "game_date"] if c in df.columns]
     if sort_cols:
         return df.sort_values(sort_cols).reset_index(drop=True)
     return df.reset_index(drop=True)
@@ -192,7 +192,7 @@ def build_row(
             f"away_team_total_under_{away_team_total}_prob"
         )
 
-    for col in ["season", "week", "game_date", "neutral_site"]:
+    for col in ["season", "week", "start_date", "game_date", "neutral_site"]:
         if col in heldout_row.index:
             out[col] = heldout_row[col]
 
@@ -207,6 +207,7 @@ def main() -> None:
         raise ValueError("Not enough games for held-out evaluation")
 
     rows: list[dict] = []
+    skipped_rows: list[dict] = []
 
     for i in range(args.min_train_games, len(games)):
         train_df = games.iloc[:i].copy()
@@ -216,76 +217,113 @@ def main() -> None:
         away_team = heldout["away_team"]
         neutral_site = bool(heldout["neutral_site"]) if "neutral_site" in heldout.index and pd.notna(heldout["neutral_site"]) else False
 
+        known_teams = set(train_df["home_team"].astype(str)) | set(train_df["away_team"].astype(str))
+        if str(home_team) not in known_teams or str(away_team) not in known_teams:
+            skipped_rows.append(
+                {
+                    "row_number": i,
+                    "reason": "unseen_team_in_training",
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "season": heldout["season"] if "season" in heldout.index else None,
+                    "week": heldout["week"] if "week" in heldout.index else None,
+                    "start_date": heldout["start_date"] if "start_date" in heldout.index else None,
+                }
+            )
+            continue
+
         spread = safe_val(heldout, args.spread_col)
         total = safe_val(heldout, args.total_col)
         home_team_total = safe_val(heldout, args.home_team_total_col)
         away_team_total = safe_val(heldout, args.away_team_total_col)
 
-        massey_result = run_massey_benchmark_for_game(
-            games_df=train_df,
-            home_team=home_team,
-            away_team=away_team,
-            neutral_site=neutral_site,
-            ridge=args.ridge,
-            recency_halflife_weeks=args.recency_halflife_weeks,
-        )
-        massey_probs = benchmark_game_probs(
-            massey_result,
-            spread=spread,
-            total=total,
-            home_team_total=home_team_total,
-            away_team_total=away_team_total,
-        )
-        rows.append(
-            build_row(
-                "massey",
+        try:
+            massey_result = run_massey_benchmark_for_game(
+                games_df=train_df,
+                home_team=home_team,
+                away_team=away_team,
+                neutral_site=neutral_site,
+                ridge=args.ridge,
+                recency_halflife_weeks=args.recency_halflife_weeks,
+            )
+            massey_probs = benchmark_game_probs(
                 massey_result,
-                massey_probs,
-                heldout,
-                spread,
-                total,
-                home_team_total,
-                away_team_total,
+                spread=spread,
+                total=total,
+                home_team_total=home_team_total,
+                away_team_total=away_team_total,
             )
-        )
+            rows.append(
+                build_row(
+                    "massey",
+                    massey_result,
+                    massey_probs,
+                    heldout,
+                    spread,
+                    total,
+                    home_team_total,
+                    away_team_total,
+                )
+            )
 
-        pi_result = run_pi_benchmark_for_game(
-            games_df=train_df,
-            home_team=home_team,
-            away_team=away_team,
-            neutral_site=neutral_site,
-            rho_offense=args.rho_offense,
-            rho_defense=args.rho_defense,
-            k_offense=args.k_offense,
-            k_defense=args.k_defense,
-        )
-        pi_probs = benchmark_game_probs(
-            pi_result,
-            spread=spread,
-            total=total,
-            home_team_total=home_team_total,
-            away_team_total=away_team_total,
-        )
-        rows.append(
-            build_row(
-                "pi",
-                pi_result,
-                pi_probs,
-                heldout,
-                spread,
-                total,
-                home_team_total,
-                away_team_total,
+            pi_result = run_pi_benchmark_for_game(
+                games_df=train_df,
+                home_team=home_team,
+                away_team=away_team,
+                neutral_site=neutral_site,
+                rho_offense=args.rho_offense,
+                rho_defense=args.rho_defense,
+                k_offense=args.k_offense,
+                k_defense=args.k_defense,
             )
-        )
+            pi_probs = benchmark_game_probs(
+                pi_result,
+                spread=spread,
+                total=total,
+                home_team_total=home_team_total,
+                away_team_total=away_team_total,
+            )
+            rows.append(
+                build_row(
+                    "pi",
+                    pi_result,
+                    pi_probs,
+                    heldout,
+                    spread,
+                    total,
+                    home_team_total,
+                    away_team_total,
+                )
+            )
+        except Exception as e:
+            skipped_rows.append(
+                {
+                    "row_number": i,
+                    "reason": f"benchmark_exception: {type(e).__name__}: {e}",
+                    "home_team": home_team,
+                    "away_team": away_team,
+                    "season": heldout["season"] if "season" in heldout.index else None,
+                    "week": heldout["week"] if "week" in heldout.index else None,
+                    "start_date": heldout["start_date"] if "start_date" in heldout.index else None,
+                }
+            )
+            continue
 
     out_df = pd.DataFrame(rows)
     output_path = Path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     out_df.to_csv(output_path, index=False)
 
+    skipped_path = output_path.with_name(output_path.stem + "_skipped.csv")
+    pd.DataFrame(skipped_rows).to_csv(skipped_path, index=False)
+
     print(f"Wrote {len(out_df)} benchmark rows to {output_path}")
-    print(out_df.head(10).to_string(index=False))
+    print(f"Wrote {len(skipped_rows)} skipped rows to {skipped_path}")
+    if len(out_df) > 0:
+        print(out_df.head(10).to_string(index=False))
+    if len(skipped_rows) > 0:
+        print("\nSkipped sample:")
+        print(pd.DataFrame(skipped_rows).head(10).to_string(index=False))
 
 
 if __name__ == "__main__":
