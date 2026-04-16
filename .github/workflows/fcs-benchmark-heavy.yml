@@ -1,0 +1,151 @@
+name: FCS benchmark heavy pipeline
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_season:
+        description: "First season to pull from CFBD"
+        required: true
+        default: "2019"
+      end_season:
+        description: "Last season to pull from CFBD"
+        required: true
+        default: "2025"
+      season_type:
+        description: "CFBD season type"
+        required: true
+        default: "regular"
+      min_train_games:
+        description: "Minimum prior games for held-out eval"
+        required: true
+        default: "200"
+      default_american_odds:
+        description: "Fallback market price assumption"
+        required: true
+        default: "-110"
+      min_edge:
+        description: "Minimum edge for candidate tables"
+        required: true
+        default: "0.02"
+      min_ev:
+        description: "Minimum EV per unit for candidate tables"
+        required: true
+        default: "0.00"
+
+jobs:
+  run-heavy-benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    env:
+      CFBD_API_KEY: ${{ secrets.CFBD_API_KEY }}
+
+    steps:
+      - name: Check out repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements-actions.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-actions.txt
+
+      - name: Create directories
+        run: |
+          mkdir -p data/raw/cfbd
+          mkdir -p data/processed
+          mkdir -p outputs/benchmark_eval
+
+      - name: Build historical FCS market dataset
+        run: |
+          python scripts/build_historical_fcs_market_dataset.py \
+            --start-season "${{ inputs.start_season }}" \
+            --end-season "${{ inputs.end_season }}" \
+            --season-type "${{ inputs.season_type }}" \
+            --out-csv data/processed/fcs_historical_games_market.csv \
+            --out-parquet data/processed/fcs_historical_games_market.parquet
+
+      - name: Historical benchmark evaluation
+        run: |
+          python scripts/evaluate_benchmarks_historical.py \
+            --input data/processed/fcs_historical_games_market.csv \
+            --output outputs/benchmark_eval/fcs_historical_benchmark_eval.csv \
+            --min-train-games "${{ inputs.min_train_games }}" \
+            --spread-col market_spread \
+            --total-col market_total
+
+      - name: Score benchmark evaluation
+        run: |
+          python scripts/score_benchmark_eval.py \
+            --input outputs/benchmark_eval/fcs_historical_benchmark_eval.csv \
+            --output outputs/benchmark_eval/fcs_historical_benchmark_summary.csv
+
+      - name: Benchmark calibration report
+        run: |
+          python scripts/calibrate_benchmark_eval.py \
+            --input outputs/benchmark_eval/fcs_historical_benchmark_eval.csv \
+            --output-prefix outputs/benchmark_eval/fcs_historical_benchmark_calibration \
+            --n-bins 10
+
+      - name: Rolling probability calibration
+        run: |
+          python scripts/calibrate_benchmark_probabilities.py \
+            --input outputs/benchmark_eval/fcs_historical_benchmark_eval.csv \
+            --output-prefix outputs/benchmark_eval/fcs_historical_benchmark_prob_calibrated \
+            --min-cal-train "${{ inputs.min_train_games }}" \
+            --ece-bins 10
+
+      - name: Compare calibrated benchmark to market
+        run: |
+          python scripts/compare_benchmark_to_market.py \
+            --input outputs/benchmark_eval/fcs_historical_benchmark_prob_calibrated_eval.csv \
+            --output-prefix outputs/benchmark_eval/fcs_historical_benchmark_market_compare \
+            --default-american-odds "${{ inputs.default_american_odds }}" \
+            --min-edge "${{ inputs.min_edge }}" \
+            --min-ev "${{ inputs.min_ev }}"
+
+      - name: Upload processed dataset artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcs-historical-dataset
+          path: |
+            data/processed/fcs_historical_games_market.csv
+            data/processed/fcs_historical_games_market.parquet
+
+      - name: Upload benchmark evaluation artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcs-benchmark-eval
+          path: |
+            outputs/benchmark_eval/fcs_historical_benchmark_eval.csv
+            outputs/benchmark_eval/fcs_historical_benchmark_eval_skipped.csv
+            outputs/benchmark_eval/fcs_historical_benchmark_summary.csv
+
+      - name: Upload calibration artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcs-benchmark-calibration
+          path: |
+            outputs/benchmark_eval/fcs_historical_benchmark_calibration_summary.csv
+            outputs/benchmark_eval/fcs_historical_benchmark_calibration_bins.csv
+            outputs/benchmark_eval/fcs_historical_benchmark_prob_calibrated_eval.csv
+            outputs/benchmark_eval/fcs_historical_benchmark_prob_calibrated_summary.csv
+
+      - name: Upload market comparison artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcs-benchmark-market-compare
+          path: |
+            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_full_eval.csv
+            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_summary.csv
+            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_home_spread_candidates.csv
+            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_away_spread_candidates.csv
+            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_over_total_candidates.csv
+            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_under_total_candidates.csv
