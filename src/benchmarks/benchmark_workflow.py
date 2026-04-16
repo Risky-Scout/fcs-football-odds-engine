@@ -101,8 +101,12 @@ def benchmark_game_probs(
     out["away_ml_american"] = fair_american_odds(away_ml_ot_adj_prob) if 0 < away_ml_ot_adj_prob < 1 else None
 
     if spread is not None:
-        home_cover = home_margin_greater_than(result.joint_pmf, spread)
-        away_cover = away_margin_greater_than(result.joint_pmf, -spread)
+        # market_spread is stored from the home-team perspective.
+        # home -3.5 => cover if home_margin > 3.5
+        # home +15.5 => cover if home_margin > -15.5
+        home_cover = home_margin_greater_than(result.joint_pmf, -spread)
+        # away +spread covers when away_margin > spread
+        away_cover = away_margin_greater_than(result.joint_pmf, spread)
         out[f"home_minus_{spread}_cover_prob"] = home_cover
         out[f"away_plus_{spread}_cover_prob"] = away_cover
 

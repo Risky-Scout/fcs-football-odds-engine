@@ -125,7 +125,10 @@ def actual_home_win(row: pd.Series) -> int:
 def actual_home_cover(row: pd.Series, spread: float | None) -> float | None:
     if spread is None:
         return None
-    return float((float(row["home_score"]) - float(row["away_score"])) > float(spread))
+    # market_spread is stored from the home-team perspective.
+    # home -3.5 => cover if home_margin > 3.5
+    # home +15.5 => cover if home_margin > -15.5
+    return float((float(row["home_score"]) - float(row["away_score"])) > (-float(spread)))
 
 
 def actual_over(row: pd.Series, total: float | None) -> float | None:
