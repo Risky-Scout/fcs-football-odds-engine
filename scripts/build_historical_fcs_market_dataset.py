@@ -19,7 +19,7 @@ HEADERS = {
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Build historical FCS dataset with market prices from CFBD."
+        description="Build historical FCS-vs-FCS dataset with market prices from CFBD."
     )
     parser.add_argument("--start-season", type=int, required=True)
     parser.add_argument("--end-season", type=int, required=True)
@@ -49,17 +49,68 @@ def get_json(endpoint: str, params: dict[str, Any]) -> list[dict[str, Any]]:
     return data
 
 
+def rename_common_game_cols(df: pd.DataFrame) -> pd.DataFrame:
+    rename_map = {
+        "id": "game_id",
+        "seasonType": "season_type",
+        "startDate": "start_date",
+        "startTimeTBD": "start_time_tbd",
+        "neutralSite": "neutral_site",
+        "conferenceGame": "conference_game",
+        "venueId": "venue_id",
+        "homeId": "home_id",
+        "homeTeam": "home_team",
+        "homeConference": "home_conference",
+        "homeClassification": "home_classification",
+        "homePoints": "home_points",
+        "awayId": "away_id",
+        "awayTeam": "away_team",
+        "awayConference": "away_conference",
+        "awayClassification": "away_classification",
+        "awayPoints": "away_points",
+        "excitementIndex": "excitement_index",
+    }
+    usable = {k: v for k, v in rename_map.items() if k in df.columns and v not in df.columns}
+    if usable:
+        df = df.rename(columns=usable)
+    return df
+
+
+def rename_common_line_cols(df: pd.DataFrame) -> pd.DataFrame:
+    rename_map = {
+        "id": "game_id",
+        "gameId": "game_id",
+        "seasonType": "season_type",
+        "startDate": "start_date",
+        "homeTeam": "home_team",
+        "awayTeam": "away_team",
+        "homeConference": "home_conference",
+        "awayConference": "away_conference",
+        "homeClassification": "home_classification",
+        "awayClassification": "away_classification",
+    }
+    usable = {k: v for k, v in rename_map.items() if k in df.columns and v not in df.columns}
+    if usable:
+        df = df.rename(columns=usable)
+    return df
+
+
+
+def normalize_game_id_col(df: pd.DataFrame) -> pd.DataFrame:
+    if "game_id" not in df.columns:
+        return df
+    out = df.copy()
+    out["game_id"] = pd.to_numeric(out["game_id"], errors="coerce").astype("Int64")
+    out = out.loc[out["game_id"].notna()].copy()
+    return out
+
+
 def flatten_game_rows(rows: list[dict[str, Any]]) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
 
     df = pd.DataFrame(rows).copy()
-
-    rename_map = {}
-    if "id" in df.columns and "game_id" not in df.columns:
-        rename_map["id"] = "game_id"
-    if rename_map:
-        df = df.rename(columns=rename_map)
+    df = rename_common_game_cols(df)
 
     keep_cols = [
         c for c in [
@@ -94,10 +145,6 @@ def flatten_game_rows(rows: list[dict[str, Any]]) -> pd.DataFrame:
 
 
 def extract_consensus_from_lines(lines_obj: Any) -> dict[str, Any]:
-    """
-    CFBD lines are typically nested per provider.
-    We aggregate to a simple consensus using medians when available.
-    """
     result = {
         "line_providers_n": 0,
         "market_spread": np.nan,
@@ -164,22 +211,27 @@ def flatten_lines_rows(rows: list[dict[str, Any]]) -> pd.DataFrame:
         if not isinstance(row, dict):
             continue
 
-        game_id = row.get("gameId", row.get("id", row.get("game_id")))
-        consensus = extract_consensus_from_lines(row.get("lines", []))
+        row_df = pd.DataFrame([row])
+        row_df = rename_common_line_cols(row_df)
+        row2 = row_df.iloc[0].to_dict()
+
+        game_id = row2.get("game_id")
+        if game_id is None or (isinstance(game_id, float) and pd.isna(game_id)):
+            game_id = row.get("gameId", row.get("id"))
 
         flat = {
             "game_id": game_id,
-            "season": row.get("season"),
-            "week": row.get("week"),
-            "season_type": row.get("seasonType", row.get("season_type")),
-            "start_date": row.get("startDate", row.get("start_date")),
-            "home_team": row.get("homeTeam", row.get("home_team")),
-            "away_team": row.get("awayTeam", row.get("away_team")),
-            "home_conference": row.get("homeConference", row.get("home_conference")),
-            "away_conference": row.get("awayConference", row.get("away_conference")),
-            "home_classification": row.get("homeClassification", row.get("home_classification")),
-            "away_classification": row.get("awayClassification", row.get("away_classification")),
-            **consensus,
+            "season": row2.get("season"),
+            "week": row2.get("week"),
+            "season_type": row2.get("season_type"),
+            "start_date": row2.get("start_date"),
+            "home_team": row2.get("home_team"),
+            "away_team": row2.get("away_team"),
+            "home_conference": row2.get("home_conference"),
+            "away_conference": row2.get("away_conference"),
+            "home_classification": row2.get("home_classification"),
+            "away_classification": row2.get("away_classification"),
+            **extract_consensus_from_lines(row.get("lines", [])),
         }
         flat_rows.append(flat)
 
@@ -195,22 +247,17 @@ def load_season_data(season: int, season_type: str) -> tuple[pd.DataFrame, pd.Da
     return games_df, lines_df
 
 
-def filter_fcs_with_prices(df: pd.DataFrame) -> pd.DataFrame:
-    # Keep games where at least one team is classified as FCS, and where market prices exist.
+def filter_fcs_vs_fcs_with_prices(df: pd.DataFrame) -> pd.DataFrame:
     out = df.copy()
 
-    home_cls = out["home_classification"].astype(str).str.lower() if "home_classification" in out.columns else pd.Series("", index=out.index)
-    away_cls = out["away_classification"].astype(str).str.lower() if "away_classification" in out.columns else pd.Series("", index=out.index)
+    home_cls = out["home_classification"].astype(str).str.lower()
+    away_cls = out["away_classification"].astype(str).str.lower()
 
-    is_fcs = home_cls.eq("fcs") | away_cls.eq("fcs")
-    has_market = (
-        out["market_spread"].notna()
-        | out["market_total"].notna()
-        | out["home_moneyline"].notna()
-        | out["away_moneyline"].notna()
-    )
+    is_fcs_vs_fcs = home_cls.eq("fcs") & away_cls.eq("fcs")
+    has_spread_or_total = out["market_spread"].notna() | out["market_total"].notna()
+    has_scores = out["home_score"].notna() & out["away_score"].notna()
 
-    out = out.loc[is_fcs & has_market].copy()
+    out = out.loc[is_fcs_vs_fcs & has_spread_or_total & has_scores].copy()
     return out
 
 
@@ -228,11 +275,8 @@ def main() -> None:
         print(f"Downloading season {season}...")
         games_df, lines_df = load_season_data(season, args.season_type)
 
-        games_path = raw_dir / f"games_{season}_{args.season_type}.csv"
-        lines_path = raw_dir / f"lines_{season}_{args.season_type}.csv"
-
-        games_df.to_csv(games_path, index=False)
-        lines_df.to_csv(lines_path, index=False)
+        games_df.to_csv(raw_dir / f"games_{season}_{args.season_type}.csv", index=False)
+        lines_df.to_csv(raw_dir / f"lines_{season}_{args.season_type}.csv", index=False)
 
         all_games.append(games_df)
         all_lines.append(lines_df)
@@ -243,16 +287,16 @@ def main() -> None:
     if games.empty or lines.empty:
         raise RuntimeError("No games or lines were downloaded.")
 
-    merged = games.merge(
-        lines,
-        on=["game_id"],
-        how="inner",
-        suffixes=("", "_line"),
-    )
+    games = normalize_game_id_col(games)
+    lines = normalize_game_id_col(lines)
 
-    # Prefer game table values when present, otherwise line table values.
-    for col in ["season", "week", "season_type", "start_date", "home_team", "away_team",
-                "home_conference", "away_conference", "home_classification", "away_classification"]:
+    merged = games.merge(lines, on=["game_id"], how="inner", suffixes=("", "_line"))
+
+    for col in [
+        "season", "week", "season_type", "start_date",
+        "home_team", "away_team", "home_conference", "away_conference",
+        "home_classification", "away_classification"
+    ]:
         line_col = f"{col}_line"
         if line_col in merged.columns:
             merged[col] = merged[col].where(merged[col].notna(), merged[line_col])
@@ -289,7 +333,7 @@ def main() -> None:
     ]
 
     final_df = merged[final_cols].copy()
-    final_df = filter_fcs_with_prices(final_df)
+    final_df = filter_fcs_vs_fcs_with_prices(final_df)
     final_df = final_df.sort_values(["season", "week", "start_date", "game_id"]).reset_index(drop=True)
 
     out_csv = Path(args.out_csv)
@@ -303,6 +347,8 @@ def main() -> None:
     print(f"Wrote {len(final_df)} rows to {out_csv}")
     print(f"Wrote {len(final_df)} rows to {out_parquet}")
     print(final_df.head(10).to_string(index=False))
+    print("\nMissingness:")
+    print(final_df[["home_score", "away_score", "market_spread", "market_total", "home_moneyline", "away_moneyline"]].isna().mean())
 
 
 if __name__ == "__main__":

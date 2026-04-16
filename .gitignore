@@ -5,6 +5,16 @@ __pycache__/
 env/
 venv/
 .ipynb_checkpoints/
-data/raw/
-data/interim/
-outputs/
+
+# secrets
+.env
+.env.*
+!.env.example
+
+# local / generated data
+/data/*
+!/data/.gitkeep
+
+# generated outputs
+/outputs/*
+!/outputs/.gitkeep
