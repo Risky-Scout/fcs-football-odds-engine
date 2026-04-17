@@ -1,0 +1,69 @@
+model_name: halftime_fullgame_margin_pmf
+
+mission:
+  objective: "Estimate true probabilities and distributions better than the market, with strong calibration and positive-EV detection."
+  core_outputs:
+    - game_margin_pmf
+    - first_half_margin_pmf
+    - second_half_margin_pmf
+    - game_score_pmf
+    - first_half_score_pmf
+    - second_half_score_pmf
+
+segments:
+  use_first_half: true
+  use_second_half: true
+  use_full_game: true
+  enforce_margin_identity: true
+  enforce_score_identity: true
+
+latent_team_state:
+  dimensions:
+    - offense
+    - defense
+    - pace
+    - explosiveness
+    - finishing_drives
+    - turnover_skill
+    - special_teams
+  weekly_dynamics: autoregressive_partial_pooling
+
+segment_models:
+  first_half:
+    enabled: true
+    target_type: joint_score_pmf
+  second_half:
+    enabled: true
+    target_type: joint_score_pmf
+  full_game:
+    enabled: true
+    target_type: derived_by_convolution_or_simulation
+
+distribution:
+  score_support_max: 100
+  margin_support_min: -80
+  margin_support_max: 80
+
+evaluation:
+  primary_markets:
+    - game_spread
+    - first_half_spread
+    - second_half_spread
+    - game_total
+    - first_half_total
+    - second_half_total
+  metrics:
+    - log_loss
+    - brier
+    - ece
+    - roi_backtest
+    - season_stability
+
+reference_layer:
+  compare_against:
+    - calibrated_pi
+  require_benchmark_outperformance: true
+
+calibration:
+  allow_posthoc_calibration: true
+  only_if_heldout_improves: true
