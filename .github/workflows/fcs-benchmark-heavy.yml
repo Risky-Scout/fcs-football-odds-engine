@@ -102,12 +102,27 @@ jobs:
             --min-cal-train "${{ inputs.min_train_games }}" \
             --ece-bins 10
 
-      - name: Compare calibrated benchmark to market
+      - name: Build reference model
         run: |
-          python scripts/compare_benchmark_to_market.py \
-            --input outputs/benchmark_eval/fcs_historical_benchmark_prob_calibrated_eval.csv \
-            --output-prefix outputs/benchmark_eval/fcs_historical_benchmark_market_compare \
+          python scripts/build_reference_model.py \
+            --eval-input outputs/benchmark_eval/fcs_historical_benchmark_prob_calibrated_eval.csv \
+            --summary-input outputs/benchmark_eval/fcs_historical_benchmark_prob_calibrated_summary.csv \
+            --output-prefix outputs/benchmark_eval/fcs_reference_model
+
+      - name: Compare reference model to market
+        run: |
+          python scripts/compare_reference_to_market.py \
+            --input outputs/benchmark_eval/fcs_reference_model_eval.csv \
+            --output-prefix outputs/benchmark_eval/fcs_reference_market_compare \
             --default-american-odds "${{ inputs.default_american_odds }}" \
+            --min-edge "${{ inputs.min_edge }}" \
+            --min-ev "${{ inputs.min_ev }}"
+
+      - name: Backtest reference candidates
+        run: |
+          python scripts/backtest_reference_candidates.py \
+            --input outputs/benchmark_eval/fcs_reference_market_compare_full_eval.csv \
+            --output-prefix outputs/benchmark_eval/fcs_reference_backtest \
             --min-edge "${{ inputs.min_edge }}" \
             --min-ev "${{ inputs.min_ev }}"
 
@@ -138,14 +153,31 @@ jobs:
             outputs/benchmark_eval/fcs_historical_benchmark_prob_calibrated_eval.csv
             outputs/benchmark_eval/fcs_historical_benchmark_prob_calibrated_summary.csv
 
-      - name: Upload market comparison artifact
+      - name: Upload reference model artifact
         uses: actions/upload-artifact@v4
         with:
-          name: fcs-benchmark-market-compare
+          name: fcs-reference-model
           path: |
-            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_full_eval.csv
-            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_summary.csv
-            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_home_spread_candidates.csv
-            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_away_spread_candidates.csv
-            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_over_total_candidates.csv
-            outputs/benchmark_eval/fcs_historical_benchmark_market_compare_under_total_candidates.csv
+            outputs/benchmark_eval/fcs_reference_model_selection.csv
+            outputs/benchmark_eval/fcs_reference_model_eval.csv
+
+      - name: Upload reference market compare artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcs-reference-market-compare
+          path: |
+            outputs/benchmark_eval/fcs_reference_market_compare_full_eval.csv
+            outputs/benchmark_eval/fcs_reference_market_compare_summary.csv
+            outputs/benchmark_eval/fcs_reference_market_compare_home_spread_candidates.csv
+            outputs/benchmark_eval/fcs_reference_market_compare_away_spread_candidates.csv
+            outputs/benchmark_eval/fcs_reference_market_compare_over_total_candidates.csv
+            outputs/benchmark_eval/fcs_reference_market_compare_under_total_candidates.csv
+
+      - name: Upload reference backtest artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcs-reference-backtest
+          path: |
+            outputs/benchmark_eval/fcs_reference_backtest_candidates.csv
+            outputs/benchmark_eval/fcs_reference_backtest_summary.csv
+            outputs/benchmark_eval/fcs_reference_backtest_season_summary.csv
