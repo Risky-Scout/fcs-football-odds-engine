@@ -60,8 +60,10 @@ jobs:
       - name: Create directories
         run: |
           mkdir -p data/raw/cfbd
+          mkdir -p data/raw/cfbd_detail
           mkdir -p data/processed
           mkdir -p outputs/benchmark_eval
+          mkdir -p outputs/pmf_baseline
 
       - name: Build historical FCS market dataset
         run: |
@@ -71,6 +73,15 @@ jobs:
             --season-type "${{ inputs.season_type }}" \
             --out-csv data/processed/fcs_historical_games_market.csv \
             --out-parquet data/processed/fcs_historical_games_market.parquet
+
+      - name: Build historical margin target table
+        run: |
+          python scripts/build_margin_target_table.py \
+            --market-input data/processed/fcs_historical_games_market.csv \
+            --season-type "${{ inputs.season_type }}" \
+            --detail-dir data/raw/cfbd_detail \
+            --output-csv data/processed/fcs_margin_targets.csv \
+            --output-parquet data/processed/fcs_margin_targets.parquet
 
       - name: Evaluate segment PMF baseline
         run: |
@@ -143,6 +154,23 @@ jobs:
             data/processed/fcs_historical_games_market.csv
             data/processed/fcs_historical_games_market.parquet
 
+      - name: Upload margin target artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcs-margin-targets
+          path: |
+            data/processed/fcs_margin_targets.csv
+            data/processed/fcs_margin_targets.parquet
+
+      - name: Upload segment PMF baseline artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcs-segment-pmf-baseline
+          path: |
+            outputs/pmf_baseline/fcs_segment_pmf_baseline_eval.csv
+            outputs/pmf_baseline/fcs_segment_pmf_baseline_skipped.csv
+            outputs/pmf_baseline/fcs_segment_pmf_baseline_summary.csv
+
       - name: Upload benchmark evaluation artifact
         uses: actions/upload-artifact@v4
         with:
@@ -190,12 +218,3 @@ jobs:
             outputs/benchmark_eval/fcs_reference_backtest_candidates.csv
             outputs/benchmark_eval/fcs_reference_backtest_summary.csv
             outputs/benchmark_eval/fcs_reference_backtest_season_summary.csv
-      - name: Upload segment PMF baseline artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: fcs-segment-pmf-baseline
-          path: |
-            outputs/pmf_baseline/fcs_segment_pmf_baseline_eval.csv
-            outputs/pmf_baseline/fcs_segment_pmf_baseline_skipped.csv
-            outputs/pmf_baseline/fcs_segment_pmf_baseline_summary.csv
-
