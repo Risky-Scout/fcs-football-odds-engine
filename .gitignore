@@ -11,10 +11,19 @@ venv/
 .env.*
 !.env.example
 
-# local / generated data
+# local/generated data
 /data/*
 !/data/.gitkeep
 
 # generated outputs
 /outputs/*
 !/outputs/.gitkeep
+
+# downloaded GitHub artifacts
+/artifacts/*
+!/artifacts/.gitkeep
+
+# editor / temp
+*.swp
+*.swo
+*.tmp
