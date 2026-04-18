@@ -72,6 +72,15 @@ jobs:
             --out-csv data/processed/fcs_historical_games_market.csv \
             --out-parquet data/processed/fcs_historical_games_market.parquet
 
+      - name: Evaluate segment PMF baseline
+        run: |
+          python scripts/evaluate_segment_pmf_baseline.py \
+            --input data/processed/fcs_margin_targets.csv \
+            --output-prefix outputs/pmf_baseline/fcs_segment_pmf_baseline \
+            --min-train-games "${{ inputs.min_train_games }}" \
+            --ridge 10.0 \
+            --support-max 80
+
       - name: Historical benchmark evaluation
         run: |
           python scripts/evaluate_benchmarks_historical.py \
@@ -181,3 +190,12 @@ jobs:
             outputs/benchmark_eval/fcs_reference_backtest_candidates.csv
             outputs/benchmark_eval/fcs_reference_backtest_summary.csv
             outputs/benchmark_eval/fcs_reference_backtest_season_summary.csv
+      - name: Upload segment PMF baseline artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: fcs-segment-pmf-baseline
+          path: |
+            outputs/pmf_baseline/fcs_segment_pmf_baseline_eval.csv
+            outputs/pmf_baseline/fcs_segment_pmf_baseline_skipped.csv
+            outputs/pmf_baseline/fcs_segment_pmf_baseline_summary.csv
+
